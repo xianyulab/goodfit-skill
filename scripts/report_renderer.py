@@ -138,6 +138,76 @@ def _node_style(node: dict) -> tuple:
     return ("#f2f3f5", "#8a8f99", "#8a8f99")
 
 
+_CJK_FLOOR = 0x2E80
+
+
+def _text_w(s, fs: float) -> float:
+    """估算文本渲染宽度：CJK/全角按 1.0em，拉丁与数字按 0.55em。
+
+    旧实现按固定 8px/字估算，中文实际约 12.5px/字，导致框宽偏小、文字顶出边框。
+    """
+    total = 0.0
+    for ch in str(s or ""):
+        total += fs if ord(ch) >= _CJK_FLOOR else fs * 0.55
+    return total
+
+
+def _node_box_size(label: str, sub: str, is_center: bool = False):
+    """按最长一行文本推算节点框宽高（含左右内边距 26px）。"""
+    fs_title = 13.5 if is_center else 12.5
+    widest = _text_w(label, fs_title)
+    if sub:
+        widest = max(widest, _text_w(sub, 10.5))
+    w = widest + 26
+    lo, hi = (150.0, 360.0) if is_center else (104.0, 260.0)
+    w = max(lo, min(hi, w))
+    h = (40.0 if is_center else 34.0) + (16.0 if sub else 0.0)
+    return w, h
+
+
+def _boxes_hit(a, b, gap: float = 12.0) -> bool:
+    """两节点框是否相交（含最小间距）。"""
+    return (abs(a["x"] - b["x"]) < a["hw"] + b["hw"] + gap and
+            abs(a["y"] - b["y"]) < a["hh"] + b["hh"] + gap)
+
+
+def _ring_order(nodes, edges) -> List[str]:
+    """按边关系做 BFS 排序，让图上相连的节点在环上也相邻，减少连线交叉。
+
+    返回节点 id 序列；无 id 的节点不参与排序（由调用方兜底追加）。
+    """
+    ids = [str(n.get("id")) for n in nodes if n.get("id")]
+    if len(ids) < 3:
+        return ids
+    pos = {nid: i for i, nid in enumerate(ids)}
+    adj: Dict[str, List[str]] = {nid: [] for nid in ids}
+    for e in edges:
+        f = str(e.get("from", ""))
+        t = str(e.get("to", ""))
+        if f in adj and t in adj:
+            adj[f].append(t)
+            adj[t].append(f)
+    key = lambda i: (-len(adj[i]), pos[i])
+    seen, order = set(), []
+    for start in sorted(ids, key=key):
+        if start in seen:
+            continue
+        queue = [start]
+        while queue:
+            cur = queue.pop(0)
+            if cur in seen:
+                continue
+            seen.add(cur)
+            order.append(cur)
+            for nb in sorted(adj[cur], key=key):
+                if nb not in seen:
+                    queue.append(nb)
+    for nid in ids:
+        if nid not in seen:
+            order.append(nid)
+    return order
+
+
 def _build_relationship_svg(graph) -> str:
     """关系穿透图入口：按 graph.layout 选择布局。
 
@@ -171,45 +241,80 @@ def _build_relationship_svg_radial(graph) -> str:
         return ""
     center = graph.get("center") or {}
     cx, cy = 360.0, 220.0
-    N = len(nodes)
-    if N == 1:
-        pos = [(cx, cy + 150.0)]
-    elif N <= 7:
-        R = 165.0
-        pos = [(cx + R * math.cos(-math.pi / 2 + i * 2 * math.pi / N),
-                cy + R * math.sin(-math.pi / 2 + i * 2 * math.pi / N)) for i in range(N)]
-    else:
-        inner, outer = 118.0, 192.0
+
+    clabel = str(center.get("label", "被背调主体"))
+    csub = str(center.get("sub", ""))
+    cw, ch = _node_box_size(clabel, csub, is_center=True)
+    center_box = {"x": cx, "y": cy, "hw": cw / 2.0, "hh": ch / 2.0,
+                  "label": clabel, "sub": csub, "style": ("#ffffff", "#0f6e56", "#0f6e56")}
+
+    # 环上顺序按图拓扑排序，避免股权链被均分打散导致连线交叉
+    by_id = {str(n["id"]): n for n in nodes if n.get("id")}
+    ordered = [by_id[i] for i in _ring_order(nodes, edges) if i in by_id]
+    for n in nodes:
+        if not n.get("id"):
+            ordered.append(n)
+    N = len(ordered)
+    sizes = [_node_box_size(str(n.get("label", "")), str(n.get("sub", ""))) for n in ordered]
+
+    def _boxes_at(pos):
+        out = []
+        for nd, (px, py), (w, h) in zip(ordered, pos, sizes):
+            out.append({"x": px, "y": py, "hw": w / 2.0, "hh": h / 2.0,
+                        "label": str(nd.get("label", "")), "sub": str(nd.get("sub", "")),
+                        "style": _node_style(nd)})
+        return out
+
+    def _single_ring(R):
+        return [(cx + R * math.cos(-math.pi / 2 + i * 2 * math.pi / N),
+                 cy + R * math.sin(-math.pi / 2 + i * 2 * math.pi / N)) for i in range(N)]
+
+    def _double_ring(r_in, r_out):
         half = (N + 1) // 2
-        k = N - half
+        k = max(N - half, 1)
         pos = []
         for i in range(N):
             if i < half:
                 ang = -math.pi / 2 + i * 2 * math.pi / half
-                r = inner
+                r = r_in
             else:
-                ang = -math.pi / 2 + (i - half) * (2 * math.pi / max(k, 1))
-                r = outer
+                ang = -math.pi / 2 + (i - half) * 2 * math.pi / k
+                r = r_out
             pos.append((cx + r * math.cos(ang), cy + r * math.sin(ang)))
+        return pos
 
-    boxes = []
-    for nd, (px, py) in zip(nodes, pos):
-        label = str(nd.get("label", ""))
-        sub = str(nd.get("sub", ""))
-        w = max(96, min(200, len(label) * 8 + 34))
-        h = 32 + (15 if sub else 0)
-        boxes.append({"x": px, "y": py, "hw": w / 2.0, "hh": h / 2.0,
-                      "label": label, "sub": sub, "style": _node_style(nd)})
+    def _has_clash(bxs):
+        for i, a in enumerate(bxs):
+            if _boxes_hit(a, center_box):
+                return True
+            for b in bxs[i + 1:]:
+                if _boxes_hit(a, b):
+                    return True
+        return False
 
-    clabel = str(center.get("label", "被背调主体"))
-    csub = str(center.get("sub", ""))
-    cw = max(110, min(230, len(clabel) * 9 + 44))
-    ch = 36 + (15 if csub else 0)
-    center_box = {"x": cx, "y": cy, "hw": cw / 2.0, "hh": ch / 2.0,
-                  "label": clabel, "sub": csub, "style": ("#ffffff", "#0f6e56", "#0f6e56")}
+    if N == 1:
+        w1, h1 = sizes[0]
+        boxes = _boxes_at([(cx, cy + ch / 2.0 + 46 + h1 / 2.0)])
+    elif N <= 8:
+        R = 165.0
+        boxes = _boxes_at(_single_ring(R))
+        for _ in range(24):
+            if not _has_clash(boxes):
+                break
+            R += 22.0
+            boxes = _boxes_at(_single_ring(R))
+    else:
+        r_in, r_out = 118.0, 192.0
+        boxes = _boxes_at(_double_ring(r_in, r_out))
+        for _ in range(24):
+            if not _has_clash(boxes):
+                break
+            r_in += 16.0
+            r_out += 24.0
+            boxes = _boxes_at(_double_ring(r_in, r_out))
 
     idmap = {"center": center_box}
-    for nd, b in zip(nodes, boxes):
+    for nd, b in zip(ordered, boxes):
         if nd.get("id"):
             idmap[str(nd["id"])] = b
 
@@ -231,7 +336,7 @@ def _build_relationship_svg_radial(graph) -> str:
                      f'stroke="#8a8f99" stroke-width="1.3" marker-end="url(#arr)"/>')
         if lab:
             mx, my = (sx + ex) / 2, (sy + ey) / 2
-            tw = len(lab) * 6.5 + 10
+            tw = _text_w(lab, 10.5) + 12
             edge_svg += (f'<rect x="{mx - tw / 2:.1f}" y="{my - 9:.1f}" width="{tw:.1f}" height="17" rx="4" '
                          f'fill="#ffffff" stroke="#e6e8eb"/>'
                          f'<text x="{mx:.1f}" y="{my + 3.5:.1f}" text-anchor="middle" font-size="10.5" fill="#5f5e5a">{_esc(lab)}</text>')
@@ -268,7 +373,7 @@ def _build_relationship_svg_radial(graph) -> str:
     cap = str(graph.get("caption", ""))
     cap_svg = ""
     if cap:
-        cap_svg = (f'<text x="{(vbX + vbW / 2):.1f}" y="{vbH - 12:.1f}" text-anchor="middle" '
+        cap_svg = (f'<text x="{(vbX + vbW / 2):.1f}" y="{vbY + vbH - 12:.1f}" text-anchor="middle" '
                    f'font-size="11.5" fill="#6b7280">⚠ {_esc(cap)}</text>')
 
     return f'''
@@ -344,7 +449,6 @@ def _build_relationship_svg_hierarchy(graph) -> str:
     for d in layers:
         layers[d].sort(key=lambda x: (x != "center", x))
 
-    W = 720
     top = 42
     step_y = 96
     layer_y = {d: top + d * step_y for d in layers}
@@ -353,24 +457,29 @@ def _build_relationship_svg_hierarchy(graph) -> str:
         nd = by_id.get(nid, {})
         label = str(nd.get("label", ""))
         sub = str(nd.get("sub", ""))
-        w = max(96, min(190, len(label) * 8 + 34))
-        h = 34 + (16 if sub else 0)
+        w, h = _node_box_size(label, sub, is_center=(nid == "center"))
         return {"label": label, "sub": sub, "hw": w / 2.0, "hh": h / 2.0,
                 "style": _node_style(nd)}
 
+    # 先按各层实际框宽算出所需画布宽度，避免宽框在同一行相互挤压
+    sizes_cache = {nid: box_of(nid) for nid in by_id}
+    margin = 70.0
+    min_gap = 28.0
+    W = 720.0
+    for ids in layers.values():
+        row = sum(sizes_cache[i]["hw"] * 2 for i in ids) + min_gap * max(len(ids) - 1, 0)
+        W = max(W, row + 2 * margin)
+
     positions = {}
     for d, ids in layers.items():
-        n = len(ids)
-        if n == 1:
-            xs = [W / 2]
-        else:
-            margin = 70
-            gap = (W - 2 * margin) / (n - 1)
-            xs = [margin + i * gap for i in range(n)]
-        for nid, x in zip(ids, xs):
-            b = box_of(nid)
-            b["x"], b["y"] = x, layer_y[d]
+        ws = [sizes_cache[i]["hw"] * 2 for i in ids]
+        used = sum(ws) + min_gap * max(len(ids) - 1, 0)
+        cursor = (W - used) / 2.0
+        for nid, w in zip(ids, ws):
+            b = dict(sizes_cache[nid])
+            b["x"], b["y"] = cursor + w / 2.0, layer_y[d]
             positions[nid] = b
+            cursor += w + min_gap
 
     def _node_svg(b, is_center=False):
         x, y, hw, hh = b["x"], b["y"], b["hw"], b["hh"]
@@ -403,7 +512,7 @@ def _build_relationship_svg_hierarchy(graph) -> str:
                      f'fill="none" stroke="#0f6e56" stroke-width="1.3" marker-end="url(#arr)" opacity="0.9"/>')
         if lab:
             mx = (sx + ex) / 2
-            tw = len(lab) * 6.5 + 10
+            tw = _text_w(lab, 10.5) + 12
             edge_svg += (f'<rect x="{mx - tw / 2:.1f}" y="{mid_y - 9:.1f}" width="{tw:.1f}" height="17" rx="4" '
                          f'fill="#ffffff" stroke="#e6e8eb"/>'
                          f'<text x="{mx:.1f}" y="{mid_y + 3.5:.1f}" text-anchor="middle" font-size="10.5" fill="#5f5e5a">{_esc(lab)}</text>')
