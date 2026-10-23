@@ -10,7 +10,7 @@ description: |
   公司背调 / 求职避坑 / 查一下 XX 公司 / 这家公司能不能去 / 去不去这家。
   即使用户只说「查一下 XX 公司」也应触发。
 agent_created: true
-version: 1.3.3
+version: 1.3.4
 ---
 
 # goodfit · 求职者反向背调助手

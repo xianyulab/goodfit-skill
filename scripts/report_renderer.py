@@ -904,6 +904,11 @@ h1{font-size:24px;margin:6px 0 4px;font-weight:700}
 .lamp.r{background:var(--redbg);border-color:var(--red)} .lamp.a{background:var(--amberbg);border-color:var(--amber)} .lamp.g{background:var(--greenbg);border-color:var(--green)}
 .verdict .vt{font-size:18px;font-weight:700} .verdict .vd{color:#444;margin-top:2px;font-size:13px}
 section{margin:30px 0}
+section.boundary{margin:38px 0 26px;padding-top:14px;border-top:1px solid var(--line)}
+section.boundary h2{font-size:12.5px;color:#9aa0a6;border-left:3px solid #e0e3e7;margin-bottom:8px;letter-spacing:.4px}
+section.boundary p,section.boundary li{font-size:12px;line-height:1.72;color:#8a8f99}
+section.boundary ul{margin:6px 0;padding-left:18px}
+section.boundary strong{color:#6b7280;font-weight:600}
 h2{font-size:17px;margin:0 0 14px;padding-left:10px;border-left:4px solid var(--brand)}
 h3{font-size:14px;margin:18px 0 8px;color:var(--brand)}
 p{margin:8px 0}
@@ -992,7 +997,9 @@ def render_report(markdown: str, meta: Optional[Dict] = None,
                     fused = fused[:idx] + " " + BOUNDARY_DISCLAIMER_TEXT + fused[idx:]
                 else:
                     fused = fused + f"<p>{BOUNDARY_DISCLAIMER_TEXT}</p>"
-            body_sections.append(f'<section><h2>{_esc(heading)}</h2>{fused}</section>')
+            sec_cls = ' class="boundary"' if "数据边界" in heading else ""
+            body_sections.append(
+                f'<section{sec_cls}><h2>{_esc(heading)}</h2>{fused}</section>')
 
     # 有图但报告无「关系穿透」章节时，补一个章节承载图
     if rel_svg and not has_rel_section:
