@@ -54,9 +54,6 @@ goodfit-skill/
 ├── LICENSE                       # MIT
 ├── README.md
 ├── references/
-│   ├── system_prompt.md          # 系统提示词（粘贴到任意 AI 平台）
-│   ├── knowledge_base.md         # 风险源知识库
-│   ├── import_guide.md           # 元器 / Coze / Dify 导入指引
 │   ├── decision_framework.md     # 红绿灯评分维度 + 报告模板
 │   ├── interview_questions.md    # 面试反问清单 + 黑话解码
 │   ├── risk_sources.md           # 硬风险源核查清单
@@ -71,16 +68,9 @@ goodfit-skill/
 
 ## 快速开始
 
-### 1. 接入 agent（核心能力，无需代码）
+### 1. 安装
 
-把 `references/system_prompt.md` 的完整内容粘贴到任意 AI 平台的「系统提示词 / System Prompt」框，
-并把 `references/knowledge_base.md` 作为知识库上传（或拼接在提示词末尾）即可。
-
-支持：腾讯元器 / 扣子 Coze / Dify / 自建后端 / 本机 WorkBuddy。
-
-#### 在 WorkBuddy 中安装（本机推荐）
-
-把整个 `goodfit-skill/` 文件夹放进 WorkBuddy 的技能目录即可，零配置：
+把整个 `goodfit-skill/` 文件夹放进 skills 目录即可，零配置：
 
 ```bash
 cp -r goodfit-skill ~/.workbuddy/skills/goodfit-skill

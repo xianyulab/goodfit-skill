@@ -90,7 +90,12 @@
 ## 关系穿透（核心 IP）
 在「关系穿透」章节内，必须附带一个 ```relationship-graph 代码块（只填数据，画图由渲染器完成，不要手写 SVG / ASCII 图）：
     {"center":{"label":"被背调主体"},"nodes":[{"id":"u1","label":"实控人","sub":"持股%","type":"person","risk":"a"}],"edges":[{"from":"center","to":"u1","label":"持股"}],"caption":"一句话穿透结论"}
-（完整字段规则见 references/system_prompt.md）
+**字段规则**
+- `center`：被背调主体，`{"label": 公司名, "sub": 可选副标题}`
+- `nodes`：关联实体数组，每项 `{"id": 唯一标识, "label": 名称, "sub": 关系说明, "type": person|company|group|risk, "risk": r|a|g}`
+- `edges`：连线数组，`{"from": "center" 或节点 id, "to": 节点 id, "label": 关系标签如「持股69%」「控制」}`
+- `caption`：一句话穿透结论
+- `layout`：默认 `hierarchy`（`center` 在顶层，按 `edges` 的 `from→to` 向下展开树状）；主体居中、关联方环绕用 `radial`
 
 🔴 `nodes` 每项必须有 `id` 字段；`edges.from/to` 通过 `id` 引用；`center` 用 `label/sub`（**不是** `name/note/color`）。漏 `id` 或用 `name` → 关系穿透图渲染异常。
 
